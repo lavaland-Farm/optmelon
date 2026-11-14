@@ -13,9 +13,8 @@
    COLOUR white ground, navy #1F3864 band, Sheet blue #4472C4 for table heads, orange #ED7D31 for sprays and alerts, pale yellow for rows to check
    TYPE Carlito (Calibri metrics, as in the team's sheets) throughout
    LAYOUT navy band with selectors, tabs, then finding title, figures row, chart + side column; phone stacks title, figures, chart, tables */
-:root{color-scheme:light dark;--bg:light-dark(#ffffff,#0e1524);--ink:light-dark(#111827,#e8ecf4);--mut:light-dark(#5b6472,#9aa4b5);--line:light-dark(#d9dee7,#2a3550);--navy:light-dark(#1F3864,#16284a);--blue:#4472C4;--org:#ED7D31;--yel:light-dark(#FFF2CC,#4a3d12);--lb:light-dark(#DDEBF7,#1b2a45);--panel:light-dark(#f6f8fb,#141d30);--ok:light-dark(#1e7a46,#5fd08f);--bad:light-dark(#b42318,#ff8a80)}
-:root[data-theme=light]{color-scheme:light}
-:root[data-theme=dark]{color-scheme:dark}
+:root{color-scheme:light;--bg:light-dark(#ffffff,#0e1524);--ink:light-dark(#111827,#e8ecf4);--mut:light-dark(#5b6472,#9aa4b5);--line:light-dark(#d9dee7,#2a3550);--navy:light-dark(#1F3864,#16284a);--blue:#4472C4;--org:#ED7D31;--yel:light-dark(#FFF2CC,#4a3d12);--lb:light-dark(#DDEBF7,#1b2a45);--panel:light-dark(#f6f8fb,#141d30);--ok:light-dark(#1e7a46,#5fd08f);--bad:light-dark(#b42318,#ff8a80)}
+:root.dark{color-scheme:dark}
 *{box-sizing:border-box;min-width:0}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:16px/1.5 Carlito,Calibri,"Segoe UI",Arial,sans-serif;overflow-x:clip}
@@ -130,7 +129,7 @@ legend{font-weight:700;padding:0 6px;font-size:17px}
   <div class="sel">
     <label>GH<select id="s-gh"></select></label>
     <label>Siklus<select id="s-sik"></select></label>
-    <div id="sync"><span id="sync-t">Memuat data…</span><button id="b-ref" type="button">Muat ulang</button></div>
+    <div id="sync"><span id="sync-t">Memuat data…</span><button id="b-ref" type="button">Muat ulang</button><button id="b-theme" type="button" aria-pressed="false">Mode gelap</button></div>
   </div>
 </div></header>
 <nav><div class="wrap">
@@ -498,6 +497,9 @@ $("s-gh").onchange=e=>{gh=e.target.value;sik="";renderAll()};
 $("s-sik").onchange=e=>{sik=e.target.value;renderAll()};
 $("c1-sel").onchange=draw1;
 $("b-ref").onclick=()=>refresh(true);
+const setTheme=d=>{document.documentElement.classList.toggle("dark",d);$("b-theme").textContent=d?"Mode terang":"Mode gelap";$("b-theme").setAttribute("aria-pressed",d);try{localStorage.setItem("opt-theme",d?"dark":"light")}catch(e){}if(S.M.length&&!$("v-ringkasan").hidden)renderDash()};
+let dk=false;try{dk=localStorage.getItem("opt-theme")==="dark"}catch(e){}setTheme(dk);
+$("b-theme").onclick=()=>setTheme(!document.documentElement.classList.contains("dark"));
 $("b-conn").onclick=()=>{if(!mcp)showSetup()};
 $("p-add").onclick=()=>{$("p-rows").insertAdjacentHTML("beforeend",obsRow("","",true))};
 $("p-rows").addEventListener("input",countObs);$("p-rows").addEventListener("change",countObs);
