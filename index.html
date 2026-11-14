@@ -104,8 +104,8 @@ td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .note{font-size:14px;border-left:3px solid var(--blue);padding:4px 10px;margin:0 0 10px}
 .note small{color:var(--mut);display:block}
 form .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(11em,1fr));gap:12px;margin-bottom:12px}
-form label{display:grid;gap:4px;font-size:14px;font-weight:700;align-content:start}
-form label input,form label select{width:100%}
+form label,.f3 label{display:grid;gap:4px;font-size:14px;font-weight:700;align-content:start}
+form label input,form label select,.f3 label input{width:100%}
 .obs td{padding:5px 6px}
 .obs input,.obs select{width:100%;min-height:40px}
 .obs td:first-child{font-weight:700}
@@ -235,7 +235,7 @@ legend{font-weight:700;padding:0 6px;font-size:17px}
   <p class="lead" id="h-more" style="margin-top:8px"></p>
 </section>
 </main>
-<footer><div class="wrap">Data dibaca dan ditulis ke Google Sheet Pendataan OPT Greenhouse Lavaland lewat connector Google Sheets milik pengguna yang membuka halaman. HST dihitung dari tanggal tanam di sheet Master. Ambang thrips 5 ekor/tanaman dan aturan jeda semprot mengikuti arahan konsultan.</div></footer>
+<footer><div class="wrap">Data dibaca dan ditulis ke Google Sheet Pendataan OPT Greenhouse Lavaland (lewat connector Google Sheets di claude.ai, atau Apps Script di luar claude.ai; <a href="#ringkasan" id="b-conn" style="color:inherit">pengaturan koneksi</a>). HST dihitung dari tanggal tanam di sheet Master. Ambang thrips 5 ekor/tanaman dan aturan jeda semprot mengikuti arahan konsultan.</div></footer>
 <datalist id="dl-pel"></datalist><datalist id="dl-opt"></datalist><datalist id="dl-gol"></datalist>
 
 <script>
@@ -257,10 +257,25 @@ const fn=v=>v==null?"–":(Math.round(v*100)/100).toLocaleString("id-ID");
 const now=new Date(),TODAY=Date.UTC(now.getFullYear(),now.getMonth(),now.getDate())/864e5;
 const S={P:[],C:[],T:[],M:[],D:[],ok:{},at:null};
 let mcp=null,gh="",sik="";
+/* Jembatan Apps Script untuk halaman di luar claude.ai (mis. GitHub Pages). Isi GAS_URL bila ingin tertanam. */
+const GAS_URL="";
+let GAS={url:GAS_URL,key:""};
+try{const g=JSON.parse(localStorage.getItem("opt-gas")||"{}");if(g.url)GAS.url=g.url;if(g.key)GAS.key=g.key}catch(e){}
+async function gasGet(){const r=await fetch(GAS.url+"?action=read&key="+encodeURIComponent(GAS.key));const j=await r.json();if(j.error)throw{code:"gas",message:j.error};return j}
+async function gasPost(body){const r=await fetch(GAS.url,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify({...body,key:GAS.key})});const j=await r.json();if(j.error)throw{code:"gas",message:j.error};return j}
+async function append(sheet,lastCol,maxRow,rows){
+  if(mcp){const r0=await nextRow(`${sheet}!A5:A${maxRow}`);return write(`${sheet}!A${r0}:${lastCol}${r0+rows.length-1}`,rows)}
+  return gasPost({action:"append",sheet,rows});
+}
+function showSetup(msg){
+  $("gmsg").innerHTML=`<div class="panel" style="margin:14px 0"><h3>Sambungkan ke Google Sheet</h3><p class="lead" style="margin-bottom:10px">${msg?esc(msg)+" ":""}Halaman di luar claude.ai membaca dan menyimpan data lewat Apps Script di Sheet Pendataan OPT. Tempel URL web app dan kunci akses dari Apps Script tersebut.</p><div class="f3"><label class="w2">URL web app Apps Script<input id="g-url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(GAS.url)}"></label><label>Kunci akses<input id="g-key" type="password" value="${esc(GAS.key)}"></label></div><div class="acts"><button class="pri" type="button" id="g-save">Simpan dan muat data</button></div></div>`;
+  if(!S.M.length)$("r-title").textContent="Belum tersambung ke data";
+  $("g-save").onclick=()=>{GAS.url=$("g-url").value.trim();GAS.key=$("g-key").value.trim();try{localStorage.setItem("opt-gas",JSON.stringify(GAS))}catch(e){}refresh()};
+}
 try{gh=localStorage.getItem("opt-gh")||"";sik=localStorage.getItem("opt-sik")||""}catch(e){}
 
 const ERR={needs_reauth:"Koneksi Google Sheets perlu disambungkan ulang: claude.ai Settings → Connectors.",server_not_connected:"Connector Google Sheets belum tersambung untuk akun ini. Tambahkan di claude.ai Settings → Connectors.",selection_required:"Ada lebih dari satu connector Google Sheets; pilih salah satu pada prompt claude.ai.",not_in_manifest:"Akses Google Sheets untuk halaman ini belum diizinkan atau dimatikan.",blocked_by_policy:"Kebijakan organisasi memblokir akses ini.",approval_required:"Halaman perlu izin untuk memakai Google Sheets Anda.",server_unavailable:"Google Sheets sedang tidak terjangkau. Coba lagi sebentar.",tool_error:"Google Sheets menolak permintaan: "};
-const emsg=e=>(ERR[e?.code]||"Gagal: ")+(e?.code==="tool_error"||!ERR[e?.code]?(e?.message||e?.code||e):"");
+const emsg=e=>e?.code==="gas"?"Apps Script menolak: "+e.message:e instanceof TypeError?"Tidak bisa menghubungi Apps Script; cek koneksi internet lalu coba lagi.":(ERR[e?.code]||"Gagal: ")+(e?.code==="tool_error"||!ERR[e?.code]?(e?.message||e?.code||e):"");
 const gmsg=(h,cls="err")=>{$("gmsg").innerHTML=h?`<div class="msg ${cls}">${h}</div>`:""};
 
 /* ---------- data ---------- */
@@ -283,7 +298,12 @@ function watchAll(){
   }
 }
 async function refresh(force){
-  if(!mcp)return;$("sync-t").textContent="Memuat…";
+  if(!mcp){if(!GAS.url||!GAS.key){showSetup();$("sync-t").textContent="Belum tersambung";return}
+    $("sync-t").textContent="Memuat…";
+    try{const j=await gasGet();for(const k of Object.keys(R)){setData(k,j[k]||[]);S.ok[k]=true}S.at=Date.now();gmsg("");renderAll()}
+    catch(e){showSetup(e?.code==="gas"?"Apps Script menolak: "+e.message+".":"Tidak bisa menghubungi Apps Script. Periksa URL dan pastikan deployment diakses oleh Anyone.");$("sync-t").textContent="Gagal memuat"}
+    return}
+  $("sync-t").textContent="Memuat…";
   try{for(const k of Object.keys(R)){const r=await mcp.callTool(SRV,"get_values",{spreadsheetId:SID,range:R[k]},{cache:{staleTime:0,gcTime:600000,refresh:true}});setData(k,vals(r));S.ok[k]=true}S.at=Date.now();gmsg("");renderAll()}
   catch(e){gmsg(esc(emsg(e)));$("sync-t").textContent="Gagal memuat"}
 }
@@ -405,7 +425,7 @@ async function write(range,values){return mcp.callTool(SRV,"update_values",{spre
 let pendP=null,pendT=null;
 $("fp").addEventListener("submit",async e=>{
   e.preventDefault();const M=$("p-msg"),btn=$("p-go");
-  if(!mcp){M.innerHTML='<div class="msg err">Koneksi ke Google Sheets tidak tersedia di tampilan ini.</div>';return}
+  if(!mcp&&!GAS.url){M.innerHTML='<div class="msg err">Belum tersambung ke Google Sheet. Isi pengaturan koneksi di bagian atas Dashboard.</div>';return}
   const d=pd($("p-tgl").value),g=$("p-gh").value,s=$("p-sik").value;
   if(d==null||!g||(!s&&g!=="Nursery")){M.innerHTML='<div class="msg err">Tanggal, GH, dan siklus wajib diisi.</div>';return}
   const{out,bad}=collectObs(),lain=$("p-lain").value.trim(),tind=$("p-tind").value.trim(),arah=$("p-arah").value.trim(),hasNote=!!(lain||tind||arah);
@@ -419,12 +439,11 @@ $("fp").addEventListener("submit",async e=>{
   btn.disabled=true;btn.textContent="Menyimpan…";
   const pel=$("p-pel").value.trim(),n=num($("p-n").value),lajur=$("p-lajur").value.trim(),src="Laman input "+iso(TODAY);
   try{
-    if(out.length){const r0=await nextRow("Input_Pengamatan!A5:A3000");
-      await write(`Input_Pengamatan!A${r0}:P${r0+out.length-1}`,out.map(x=>[iso(d),g,s,null,pel,lajur,x.o,null,x.p,x.v,x.lap,n,null,null,"",src]))}
-    if(hasNote){const r1=await nextRow("Catatan_Harian!A5:A1000");await write(`Catatan_Harian!A${r1}:L${r1}`,[[iso(d),g,s,null,pel,n??"",lajur,lain,tind,"",arah,src]])}
+    if(out.length)await append("Input_Pengamatan","P",3000,out.map(x=>[iso(d),g,s,null,pel,lajur,x.o,null,x.p,x.v,x.lap,n,null,null,"",src]));
+    if(hasNote)await append("Catatan_Harian","L",1000,[[iso(d),g,s,null,pel,n??"",lajur,lain,tind,"",arah,src]]);
     M.innerHTML=`<div class="msg ok">Tersimpan: ${out.length} temuan${hasNote?" dan catatan harian":""}. Dashboard diperbarui.</div>`;
     buildObs();["p-lain","p-tind","p-arah"].forEach(i=>$(i).value="");
-    await mcp.invalidate(SRV,"get_values").catch(()=>{});refresh();
+    if(mcp)await mcp.invalidate(SRV,"get_values").catch(()=>{});refresh();
   }catch(err){M.innerHTML=`<div class="msg err">${esc(emsg(err))}${["server_unavailable","upstream_error"].includes(err?.code)?" Data mungkin sudah tersimpan sebagian; cek Sheet dulu sebelum menyimpan ulang.":""}</div>`}
   pendP=null;btn.disabled=false;btn.textContent="Periksa dan simpan";btn.className="pri";
 });
@@ -439,16 +458,16 @@ function tWarn(){
 }
 $("ft").addEventListener("submit",async e=>{
   e.preventDefault();const M=$("t-msg"),btn=$("t-go");
-  if(!mcp){M.innerHTML='<div class="msg err">Koneksi ke Google Sheets tidak tersedia di tampilan ini.</div>';return}
+  if(!mcp&&!GAS.url){M.innerHTML='<div class="msg err">Belum tersambung ke Google Sheet. Isi pengaturan koneksi di bagian atas Dashboard.</div>';return}
   const d=pd($("t-tgl").value),g=$("t-gh").value,s=$("t-sik").value,k=$("t-kat").value,prod=$("t-prod").value.trim();
   if(d==null||!g||!k||!prod){M.innerHTML='<div class="msg err">Tanggal, GH, kategori, dan produk/tindakan wajib diisi.</div>';return}
   const row=[iso(d),g,s,null,k,$("t-sas").value.trim(),prod,$("t-gol").value.trim(),$("t-dos").value.trim(),$("t-per").value.trim(),$("t-cak").value.trim(),$("t-pel").value.trim(),null,$("t-cat").value.trim(),"Laman input "+iso(TODAY)];
   const key=JSON.stringify(row);
   if(pendT!==key){M.innerHTML=`<div class="msg info">Akan disimpan: ${esc(k)}, ${esc(prod)}${row[8]?" "+esc(row[8]):""} di ${esc(g)} ${esc(s)}, ${fdy(d)}. Tekan sekali lagi untuk menyimpan.</div>`;pendT=key;btn.textContent="Ya, simpan ke Sheet";btn.className="warn";return}
   btn.disabled=true;btn.textContent="Menyimpan…";
-  try{const r0=await nextRow("Input_Tindakan!A5:A1000");await write(`Input_Tindakan!A${r0}:O${r0}`,[row]);
+  try{await append("Input_Tindakan","O",1000,[row]);
     M.innerHTML='<div class="msg ok">Tindakan tersimpan. Dashboard diperbarui.</div>';["t-prod","t-dos","t-per","t-cak","t-cat"].forEach(i=>$(i).value="");$("t-warn").innerHTML="";
-    await mcp.invalidate(SRV,"get_values").catch(()=>{});refresh()}
+    if(mcp)await mcp.invalidate(SRV,"get_values").catch(()=>{});refresh()}
   catch(err){M.innerHTML=`<div class="msg err">${esc(emsg(err))}${["server_unavailable","upstream_error"].includes(err?.code)?" Mungkin sudah tersimpan; cek Sheet dulu sebelum menyimpan ulang.":""}</div>`}
   pendT=null;btn.disabled=false;btn.textContent="Periksa dan simpan";btn.className="pri";
 });
@@ -479,6 +498,7 @@ $("s-gh").onchange=e=>{gh=e.target.value;sik="";renderAll()};
 $("s-sik").onchange=e=>{sik=e.target.value;renderAll()};
 $("c1-sel").onchange=draw1;
 $("b-ref").onclick=()=>refresh(true);
+$("b-conn").onclick=()=>{if(!mcp)showSetup()};
 $("p-add").onclick=()=>{$("p-rows").insertAdjacentHTML("beforeend",obsRow("","",true))};
 $("p-rows").addEventListener("input",countObs);$("p-rows").addEventListener("change",countObs);
 $("p-reset").onclick=()=>{buildObs();pendP=null};
@@ -495,7 +515,7 @@ route();
 (async()=>{
   for(let i=0;i<30&&!window.claude?.use;i++)await new Promise(r=>setTimeout(r,100));
   try{mcp=await window.claude?.use?.("mcp")}catch(e){mcp=null}
-  if(!mcp){gmsg("Halaman ini membaca dan menulis ke Google Sheets lewat connector Anda. Buka halaman ini di claude.ai dengan connector Google Sheets tersambung.");$("sync-t").textContent="Tidak tersambung";return}
+  if(!mcp){refresh();setInterval(()=>{if(!document.hidden&&GAS.url&&GAS.key)refresh()},180000);return}
   watchAll();
 })();
 }
